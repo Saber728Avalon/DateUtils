@@ -1,7 +1,8 @@
-#include "stdafx.h"
 #include "DateUtils.h"
 #include <time.h>
-#include <chrono>
+#include <ctime>
+//#include <chrono>
+
 
 //   static final int PATTERN_ERA                  =  0; // G
 //   static final int PATTERN_YEAR                 =  1; // y
@@ -31,7 +32,9 @@
 // ensures an int takes up at least 2 spaces
 inline std::string to_string_with0(const int i, int nPaddingCount) {
 	int nOrigLen = 0;
-	std::string strRst = std::to_string(i);
+	char chBufTmp[64] = {0};
+	sprintf(chBufTmp, "%d", i);
+	std::string strRst = chBufTmp;
 	nOrigLen = strRst.length();
 	for (int i = 0; i < nPaddingCount - nOrigLen; i++)
 	{
@@ -64,10 +67,16 @@ inline int iCountLeapYearsSinceEpoch(int iYear) {
 
 std::map<int, int> DateUtils::mi_days_in_month = DateUtils::InitMonthMap();
 
+int DateUtils::m_nCurUtcTimeZone;
+
 //YY-MM-DD hh:mm:ss 
 DateUtilsTm DateUtils::StringToDatetime(std::string str, std::string format)
 {
 	DateUtilsTm tm = { 0 };
+	if (str.size() < format.size())
+	{
+		return tm;
+	}
 	for (std::size_t i = 0; i < format.size(); ) {
 
 		char cmd = format[i]; // character after %
@@ -102,8 +111,55 @@ DateUtilsTm DateUtils::StringToDatetime(std::string str, std::string format)
 			break;
 
 		case 'M': // minute with preceeding 0
-			toIns = str.substr(i, nCount);
-			tm.tm_mon = strtol(toIns.c_str(), &pTmp, 10);
+
+			if (1 == nCount || 2 == nCount)
+			{
+				toIns = str.substr(i, nCount);
+				tm.tm_mon = strtol(toIns.c_str(), &pTmp, 10);
+				tm.tm_mon--;
+			}
+			else if (3 == nCount)
+			{
+				toIns = str.substr(i, nCount);
+				bool bIsDigital = true;
+				//判断是否都是数字
+				for (int i = 0; i < toIns.size(); i++)
+				{
+					bool bTmp = toIns[i] >= '0' && toIns[i] <= '9';
+					if (!bTmp)
+					{
+						bIsDigital = false;
+						break;
+					}
+				}
+
+				if (bIsDigital)
+				{
+					tm.tm_hour = strtol(toIns.c_str(), &pTmp, 10);
+				}
+				else
+				{
+					for (int nTmpI = 0; nTmpI < 12; nTmpI++)
+					{
+						std::string strMonth = shortMonthName(nTmpI);
+						if (0 == stricmp(strMonth.c_str(), toIns.c_str()))
+						{
+							tm.tm_mon = nTmpI;
+						}
+					}
+				}
+			}
+			else
+			{
+				for (int nTmpI = 0; nTmpI < 12; nTmpI++)
+				{
+					std::string strMonth = fullMonthName(nTmpI);
+					if (0 == stricmp(strMonth.c_str(), toIns.c_str()))
+					{
+						tm.tm_mon = nTmpI;
+					}
+				}
+			}
 			break;
 
 		case 'm': // minutes without preceeding 0
@@ -139,6 +195,9 @@ DateUtilsTm DateUtils::StringToDatetime(std::string str, std::string format)
 		i += nCount;
 	}
 
+	//北京时间区转格林威治时间区
+	tm = TmSubHour(tm, m_nCurUtcTimeZone);
+
 	tm.tm_year -= 1900;
 	tm = CalcWDayYDay(tm);
 	return tm;                                 // 返回值。 
@@ -153,7 +212,7 @@ time_t DateUtils::CountDaysAfterEpoch(int iYear, int iMonth, int iDay) {
 
 	int i_days_in_past_months = 0;
 
-	for (int i = 0; i < iMonth - 1; i++) {
+	for (int i = 0; i < iMonth; i++) {
 		i_days_in_past_months += mi_days_in_month[i];
 	}
 
@@ -196,7 +255,19 @@ std::string DateUtils::DatetimeToString(const DateUtilsTm& tm, std::string forma
 			break;
 
 		case 'M': // minute with preceeding 0
-			toIns = to_string_with0(tm.tm_mon, nCount);
+			if (1 == nCount || 2 == nCount)
+			{
+				toIns = to_string_with0(tm.tm_mon + 1, nCount);
+			}
+			else if (3 == nCount)
+			{
+				toIns = shortMonthName(nCount);
+			}
+			else
+			{
+				toIns = fullMonthName(nCount);
+			}
+			
 			break;
 
 		case 'm': // minutes without preceeding 0
@@ -293,10 +364,10 @@ DateUtilsTm DateUtils::Timestamp2Tm(time_t time)
 
 	//将从1970转换到从1900的年差
 	int nPass4year = dayQuot / 1461;//4年1461天
-	tm.tm_year = (nPass4year << 4) + 70;// 
+	tm.tm_year = (nPass4year * 4) + 70;// 
 
 	int nPass4yearQuot = dayQuot % 1461;
-	tm.tm_yday = nPass4yearQuot % 365;
+	//tm.tm_yday = nPass4yearQuot % 365;
 	for (;;)
 	{
 		int nHpery = iDAYS_IN_YEAR;
@@ -305,24 +376,36 @@ DateUtilsTm DateUtils::Timestamp2Tm(time_t time)
 			nHpery += 1;
 		}
 
-		if (dayQuot < nHpery)
+		if (nPass4yearQuot < nHpery)
 		{
+			tm.tm_yday = nPass4yearQuot;
 			break;
 		}
 
 		tm.tm_year++;
-		dayQuot -= nHpery;
+		nPass4yearQuot -= nHpery;
 	}
 
 	//接下来计算月与天
 	int nDay = tm.tm_yday;
+	nDay++;//因为年中的日子从0开始，这里是从1开始的
 	for (tm.tm_mon = 0; mi_days_in_month[tm.tm_mon] < nDay; tm.tm_mon++)
 	{
-		nDay -= mi_days_in_month[tm.tm_mon];
-	}
+		if (1== tm.tm_mon && 0 == (tm.tm_year & 3))//闰年二月多一天
+		{
+			nDay -= (mi_days_in_month[tm.tm_mon] + 1);
 
-	tm.tm_mon++;
-	tm.tm_mday = nDay + 1;
+		}
+		else
+		{
+			nDay -= mi_days_in_month[tm.tm_mon];
+		}
+		
+	}
+	tm.tm_mday = nDay;
+
+	//转到北京时区
+	tm = TmAddHour(tm, m_nCurUtcTimeZone);
 	return tm;
 }
 
@@ -332,4 +415,79 @@ std::string DateUtils::TimestampToString(time_t time, std::string strSimpleDateF
 	DateUtilsTm tm = Timestamp2Tm(time);
 	std::string strDate = DatetimeToString(tm, strSimpleDateFormat);
 	return strDate;
+}
+
+DateUtilsTm DateUtils::TmAddHour(DateUtilsTm tm, int nHour)
+{
+	tm.tm_hour += nHour;
+	int nHourQuot = tm.tm_hour / iHOURS_IN_DAY;
+	if (0 == nHourQuot)
+	{
+		return tm;
+	}
+
+	//需要增加天
+	tm.tm_hour %= iHOURS_IN_DAY;
+	tm.tm_mday++;
+
+	int nCurMonthDay = mi_days_in_month[tm.tm_mon];
+	if (1== tm.tm_mon && 0== (tm.tm_year % 4))//闰年2月有29天
+	{
+		nCurMonthDay ++;
+	}
+
+	int nDayQuot = tm.tm_mday / (nCurMonthDay + 1);
+	if (0 == nDayQuot)
+	{
+		return tm;
+	}
+
+	//需要增加月
+	tm.tm_mday = tm.tm_mday % nCurMonthDay;
+	tm.tm_mon++;
+	int nMonthQuot = tm.tm_mon / 12;
+	if (0 == nMonthQuot)
+	{
+		return tm;
+	}
+	
+	//需要增加年
+	tm.tm_mon %= iMONTHS_IN_YEAR;
+	tm.tm_year++;
+
+	return tm;
+}
+
+DateUtilsTm DateUtils::TmSubHour(DateUtilsTm tm, int nHour)
+{
+	tm.tm_hour -= nHour;
+	if (tm.tm_hour >= 0)
+	{
+		return tm;
+	}
+
+	//需要减少天
+	tm.tm_hour  += iHOURS_IN_DAY;
+	tm.tm_mday--;
+	if (tm.tm_mday > 0)
+	{
+		return tm;
+	}
+	
+	//需要减少月
+	tm.tm_mon--;
+	int nPrivMonthDay = tm.tm_mon >=0 ? mi_days_in_month[tm.tm_mon] : -1;
+	if (nPrivMonthDay > 0)
+	{
+		tm.tm_mday += mi_days_in_month[tm.tm_mon];
+		return tm;
+	}
+
+	//需要减少年
+	tm.tm_mday += iDAYS_IN_DECEMBER;
+
+	tm.tm_mon += iMONTHS_IN_YEAR;
+	tm.tm_year--; 
+
+	return tm;
 }

@@ -2,6 +2,11 @@
 #include <string>
 #include <map>
 
+#if defined(_WIN32) || defined(_WIN64)
+	#include <Windows.h>
+#else
+	#error "Not Support The Platform"
+#endif
 
 /*
 *按照java的 SimpleDateFormat思路封装的C++类
@@ -11,15 +16,16 @@
 
 struct DateUtilsTm
 {
-    int tm_sec;   // seconds after the minute - [0, 60] including leap second
+    int tm_sec;   // seconds after the minute - [0, 59] including leap second
     int tm_min;   // minutes after the hour - [0, 59]
     int tm_hour;  // hours since midnight - [0, 23]
     int tm_mday;  // day of the month - [1, 31]
-    int tm_mon;   // months since January - [1, 12]
+    int tm_mon;     /* months since January - [0,11] */
     int tm_year;  // since 1900
     int tm_wday;  // days since Sunday - [0, 6]
     int tm_yday;  // days since January 1 - [0, 365]
     int tm_mill;  // millisecond
+	int tm_isdst;   /* daylight savings time flag */
 };
 
 #define iEPOCH_YEAR 1970
@@ -57,9 +63,19 @@ struct DateUtilsTm
 #define ONE_MINUTE_MILLS 1000
 
 #define ONE_YEAR_HOURS 8760
+
+//#define UTC_TIME_ZONE 8//中国的时区要加8.所以遇到UTC时间和标准timestamp会有需要做+8， -8 
+
 class DateUtils
 {
 public:
+
+	/************************************************************************/
+	/* 支持的时间格式														*/
+	/*yyyy-MM-dd hh:mm:ss SSS 例 2021-10-1- 01:22:33 444					*/
+	/*yyyy-MMM-dd hh:mm:ss SSS 例 2021-Oct-1- 01:22:33 444					*/
+	/************************************************************************/
+
 
     //字符串转结构体
 	static DateUtilsTm StringToDatetime(std::string str, std::string strSimpleDateFormat);
@@ -85,7 +101,14 @@ public:
     //计算w_day, y_day
     static DateUtilsTm CalcWDayYDay(DateUtilsTm tm);
 
-    //初始化静态成员map
+	//当前tm加上几个小时
+	static DateUtilsTm TmAddHour(DateUtilsTm tm, int nHour);
+
+
+	//当前tm减少几个小时
+	static DateUtilsTm TmSubHour(DateUtilsTm tm, int nHour);
+    
+	//初始化静态成员map
     static std::map<int, int> InitMonthMap() {
         std::map<int, int> mapDayInMonth;
         mapDayInMonth[0] = iDAYS_IN_JANUARY;
@@ -100,9 +123,19 @@ public:
         mapDayInMonth[9] = iDAYS_IN_OCTOBER;
         mapDayInMonth[10] = iDAYS_IN_NOVEMBER;
         mapDayInMonth[11] = iDAYS_IN_DECEMBER;
+
+#if defined(_WIN32) || defined(_WIN64)
+		TIME_ZONE_INFORMATION tzi = { 0 };
+		GetTimeZoneInformation(&tzi);
+		m_nCurUtcTimeZone = tzi.Bias / (-60);
+#else
+	#error "Not Support The Platform"
+#endif
+
         return mapDayInMonth;
     }
 private:
     static std::map<int, int> mi_days_in_month;
+	static int	m_nCurUtcTimeZone;
 };
 
