@@ -142,7 +142,11 @@ DateUtilsTm DateUtils::StringToDatetime(std::string str, std::string format)
 					for (int nTmpI = 0; nTmpI < 12; nTmpI++)
 					{
 						std::string strMonth = shortMonthName(nTmpI);
-						if (0 == stricmp(strMonth.c_str(), toIns.c_str()))
+#if defined(_WIN32) || defined(_WIN64)
+							if (0 == _stricmp(strMonth.c_str(), toIns.c_str()))
+#else
+							if (0 == stricmp(strMonth.c_str(), toIns.c_str()))
+#endif
 						{
 							tm.tm_mon = nTmpI;
 						}
@@ -154,7 +158,12 @@ DateUtilsTm DateUtils::StringToDatetime(std::string str, std::string format)
 				for (int nTmpI = 0; nTmpI < 12; nTmpI++)
 				{
 					std::string strMonth = fullMonthName(nTmpI);
+
+#if defined(_WIN32) || defined(_WIN64)
+					if (0 == _stricmp(strMonth.c_str(), toIns.c_str()))
+#else
 					if (0 == stricmp(strMonth.c_str(), toIns.c_str()))
+#endif
 					{
 						tm.tm_mon = nTmpI;
 					}
